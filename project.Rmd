@@ -1,0 +1,327 @@
+---
+title: "Regression Model Course Project"
+author: "Rashan Jibowu"
+date: "April 24, 2015"
+output:
+  html_document:
+    keep_md: yes
+---
+
+### Executive Summary
+
+This report explores two questions.
+1. Is an automatic or manual transmission better for MPG?
+2. What is the MPG difference between automatic and manual transmissions?
+
+Using regression analysis and exploratory data analysis, this report details the meaningful difference in miles per gallon between vehicles with automatic and manual transmissions. The final model put forth in this report shows a 4.2 MPG improvement in cars with manual transmissions over those with automatic transmission, holding other factors that contribute to variation in MPG constant.
+
+### Set up
+
+Load the necessary packages and the data
+
+``` {r setup}
+
+library(datasets)
+library(ggplot2)
+library(car)
+library(corrplot)
+data(mtcars)
+
+```
+
+### Exploratory Data Analysis
+
+#### Data summary
+
+``` {r summarize}
+
+summary(mtcars)
+
+```
+
+#### Relationships between variables
+
+```{r pair-plot}
+
+pairs(mtcars)
+
+```
+
+Taken together, we can see that the variables `cyl`, `vs`, `am`, `gear`, and `carb` take discrete values and may be treated like categorical variables.
+
+#### Transmission versus MPG
+
+Since the core questions center around the relationship between transmission and MPG, below is a plot that examines that relationship more closely.
+
+``` {r mpg-vs-transmission-plot}
+
+labels <- c("Automatic", "Manual")
+g <- ggplot(aes(y = mpg, x = factor(am, labels = labels), color = factor(am, labels = labels)), data = mtcars)
+g <- g + geom_boxplot()
+g <- g + ggtitle("MPG vs. Transmission Type") + xlab("Transmission Type") + ylab("Miles per Gallon")
+g + theme(legend.position = "none")
+
+```
+
+From the plot above, it is clear that cars with manual transmissions have better MPG than cars with automatic transmissions. 
+
+#### Mean MPG by transmission type
+
+The table below shows the average MPG for cars with each each type of transmission. Again, cars with manual transmissions ave better MPG than those with automatic transmissions.
+
+``` {r mpg-vs-transmission-table}
+
+round(tapply(mtcars$mpg, factor(mtcars$am, labels = labels), mean), 2)
+
+```
+
+### Regression Analysis
+
+To better understand the relationship between transmission and MPG (in the presence of confounders), three models are put forth to predict miles per gallon for a given car. Each of these models attempts to explain as much of the variance in MPG as possible using only statistically significant variables. 
+
+```{r model1}
+
+# Model one
+model.1 <- lm(mpg ~ wt + cyl, data = mtcars)
+
+```
+
+```{r model2}
+
+# Model two
+model.2 <- lm(mpg ~ factor(am) + hp, data = mtcars)
+
+```
+
+```{r model3}
+
+# Model three
+model.3 <- lm(mpg ~ factor(am) + cyl + carb, data = mtcars)
+
+```
+
+#### Model Selection Methodology
+
+##### Decreasing correlation strategy
+
+One model building strategy is to start with the variable with the highest correlation with `mpg` and subsequently add less correlated variables until additive variables become statistically insignificant (p-values greater than 0.05). To following this strategy, we start with `wt`, whose correlation with `mpg` is the highest (see the Appendix for the correlation matrix). The next highest correlated variable is `cyl`. With just two variables, **this model explains 83% of the variation** in the data without sacrificing significance. 
+
+```{r summary-model1}
+
+summary(model.1)
+
+```
+
+However, the additive impact of `transmission (am)` is insignificant.
+
+```{r model1a}
+
+# review additive impact of transmission variable
+model.1a <- update(model.1, mpg ~ wt + cyl + factor(am), data = mtcars)
+anova(model.1, model.1a)
+
+```
+
+##### Increasing correlation strategy
+
+Another strategy is to start from the least correlated variable and continously add more correlated features. With this strategy, `transmission (am)` and `horsepower (hp)` are the variables with statistical significance.
+
+``` {r summary-model2}
+
+summary(model.2)
+
+```
+
+Although **this model explains 78% of the variance in the data**, a few points less than model 1, it includes the `transmission (am)` predictor that is of primary interest.
+
+**Model Interpretation:** According to Model 2, all else being equal, cars with manual transmissions have approximately 5.3 more miles per gallon than cars with automatic transmissions. 
+
+**Model Uncertainty:** Under Model 2, as shown below, there is 95% confidence that the true improvement in MPG of cars with manual transmission over cars with automatic transmission lies between 3.2 and 7.4 MPG.
+
+```{r model2-uncertainty}
+
+am.estimate <- summary(model.2)$coef[2,1]
+am.std.error <- summary(model.2)$coef[2,2]
+
+# 95% confidence interval of the estimate
+am.estimate + c(-1, 1) * 1.96 * am.std.error
+
+```
+
+##### Disparate relative correlation strategy
+
+This strategy starts with the predictor of interest `transmission (am)` and selects additional features based on likelihood of explaining significance. Using the correlation matrix (see Appendix), the variable with the _lowest_ correlation with the first predictor and the _greatest_ correlation with the outcome variable `mpg` is identified as a potential model feature. Repeating this process for subsequent features (maximizing the difference between its corellation with all other previously selected predictors) yields a small list of features that is likely to explain much of the variance in the data.
+
+```{r summary-model3}
+
+summary(model.3)
+
+```
+
+This model explains `81%` of the variation in the data and includes our predictor of interest -- `transmission (am)`.
+
+**Model Interpretation:** According to Model 3, all else being equal, cars with manual transmissions have approximately 4.2 more miles per gallon than cars with automatic transmissions. 
+
+**Model Uncertainty:** Under Model 3, as shown below, there is 95% confidence that the true improvement in MPG of cars with manual transmission over cars with automatic transmission lies between 1.7 and 6.8 MPG.
+
+```{r model3-uncertainty}
+
+am.estimate <- summary(model.3)$coef[2,1]
+am.std.error <- summary(model.3)$coef[2,2]
+
+# 95% confidence interval of the estimate
+am.estimate + c(-1, 1) * 1.96 * am.std.error
+
+```
+
+### Assessing the models
+
+To select from the three models, we consider the relevance of features, ability to explain variance, and the variance inflation associated with each model.
+
+#### ANOVA Analysis
+
+```{r anova}
+
+anova(model.1, model.2, model.3)
+
+```
+
+At this point, we remove Model 1 from consideration. Despite the fact that it explains more of the variation than the others, it does not include the predictor that we are interested in exploring.
+
+Of the remaining 2 models, Model 3 explains more of the data where `transmission (am)` is a significant factor. The p-value shown in the ANOVA table above indicates that with Model 3, we exchange 1 degree of freedom for additional _meaningful_ explanation of variance. As a result, we are more confident in Model 3's predictive power.
+
+In addition, considering the variance inflation associated with each of the models, Model 3 certainly inflates variance with respect to Model 2, but not nearly as much as Model 1. 
+
+#### Variance Inflation Anaysis
+
+``` {r variance-inflation}
+
+vif(model.1)
+vif(model.2)
+vif(model.3)
+
+```
+
+As a result, we will continue the analysis by focusing exclusively on Model 3.
+
+#### Model diagnostics
+
+The diagnostic plots below show that model 3 is a quality model.
+
+```{r diagnostic-plot}
+
+# diagnostic plots to measure quality of model
+plot(model.3)
+
+```
+
+### Conclusions
+
+Based on the analyses above, *manual transmission is better for MPG*. Based on the final regression model, the estimated improvement in MPG for cars with manual transmissions over cars with automatic transmissions is about 4.2 miles per gallon.
+
+### Appendix
+
+#### Correlaton Matricies
+
+Correlation matricies are helpful in understanding the relationships between variables.
+
+```{r correlation-analysis}
+
+correlation.matrix <- cor(mtcars)
+
+```
+
+A more visual matrix would help the exploratory analysis.
+
+``` {r correlation-plot}
+
+corrplot(correlation.matrix, method = "pie")
+
+```
+
+#### Potential Confounders
+
+Understanding relationships between `mpg` and variables that are highly correlated with it
+
+```{r potential-confounders}
+
+# plot mpg vs cyl
+g <- ggplot(aes(y = mpg, x = factor(cyl), color = factor(am, labels = labels)), 
+            data = mtcars) + 
+    geom_point()
+
+g + ggtitle("MPG vs. Cylinder Count") + 
+    xlab("Cylinder Count") + 
+    ylab("Miles per Gallon") + 
+    scale_color_discrete(name="Transmission Type")
+
+# plot mpg vg disp
+g <- ggplot(aes(y = mpg, x = disp, color = factor(am, labels = labels)), 
+            data = mtcars) + 
+    geom_point() + 
+    geom_smooth(method = "lm")
+
+g + ggtitle("MPG vs. Displacement") + 
+    xlab("Displacement (cu.in)") + 
+    ylab("Miles per Gallon") +
+    scale_color_discrete(name="Transmission Type")
+
+# plot mpg vs hp
+g <- ggplot(aes(y = mpg, x = hp, color = factor(am, labels = labels)), 
+       data = mtcars) + 
+    geom_point() + 
+    geom_smooth(method = "lm")
+
+g + ggtitle("MPG vs. Horsepower") + 
+    xlab("Horsepower") + 
+    ylab("Miles per Gallon") +
+    scale_color_discrete(name="Transmission Type")
+
+# plot mpg vs wt
+g <- ggplot(aes(y = mpg, x = wt, color = factor(am, labels = labels)), 
+            data = mtcars) + 
+    geom_point() + 
+    geom_smooth(method = "lm")
+
+g + ggtitle("MPG vs. Weight") + 
+    xlab("Weight (per 1000 lbs)") + 
+    ylab("Miles per Gallon") + 
+    scale_color_discrete(name="Transmission Type")
+
+```
+
+#### Additional Exploratory Analysis
+
+Understanding relationships between `mpg` and the features of the selected model: `cyl` and `carb`
+
+```{r exploring-model-features}
+
+# plot mpg vs cyl
+g <- ggplot(aes(y = mpg, x = factor(cyl), color = factor(am, labels = labels)), 
+            data = mtcars) + 
+    geom_point()
+
+g + ggtitle("MPG vs. Cylinder Count") + 
+    xlab("Cylinder Count") + 
+    ylab("Miles per Gallon") + 
+    scale_color_discrete(name="Transmission Type")
+
+# plot mpg vs carb
+g <- ggplot(aes(y = mpg, x = factor(carb), color = factor(am, labels = labels)), 
+            data = mtcars) + 
+    geom_point()
+
+g + ggtitle("MPG vs. Carburetor Count") + 
+    xlab("Carburetor Count") + 
+    ylab("Miles per Gallon") + 
+    scale_color_discrete(name="Transmission Type")
+
+```
+
+#### Potential influencers on the model
+
+```{r influence-measures}
+
+influence.measures(model.3)
+
+```
